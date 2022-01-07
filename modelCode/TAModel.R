@@ -8,10 +8,10 @@
 #dCs2.dt = Lf2+lout-Ds2                           [g C m-2 day-1] ##Cs2 = non-soluble fast soil C pool, Lf2= litter input from leaves and roots, lout=wood litter flux, Ds2= decomposition flux
 #dCs3.dt = Bs1+Bs2-Ds3                               [g C m-2 day-1] ##Cs3 = slow soil C pool, Bs1= C buried from Cs1, Bs2= C buried from Cs2, Ds3= decomposition flux  
 #dCs4.dt = Bs3-Ds4                                  [g C m-2 day-1]  ##Cs4 = passive soil C pool, Bs3=burial from Cs3, Ds4=decomposition flux
-#dCdoc1/dt = Ls1+Ls2+(P/100)*Cprecip-Bdoc-LCT1-Rhdoc [g C m-2 day-1] ##Cdoc1 = upper DOC pool, Ls1= DOC leached from Cs1, Ls2= DOC leached from Cs2, 
+#dCdoc1/dt = Ls1+Ls2+((P-P*pctInt)/100)*Cprecip-Bdoc-LCT1-Rhdoc [g C m-2 day-1] ##Cdoc1 = upper DOC pool, Ls1= DOC leached from Cs1, Ls2= DOC leached from Cs2, 
                                                                   ##Bdoc= vertical DOC flux from upper layer, LCT1= LCT from upper layer, Rhdoc= heterotrophic respiration of upper DOC
 #dCdoc2/dt = Bdoc+Ls3-LCT2-Rhdoc2                  [g C m-2 day-1] ##Cdoc2 = lower DOC pool, Ls3= DOC leached from Cs3, LCT2= LCT from lower layer, Rhdoc2= heterotrophic respiration of lower DOC
-#dW1/dt = P-Q1-Q12                               [cm water equivalence day-1] ##P = precipitation, Q1 = lateral drainage from upper water layer, D = vertical drainage
+#dW1/dt = (P-P*pctInt)-Q1-Q12                               [cm water equivalence day-1] ##P = precipitation, Q1 = lateral drainage from upper water layer, D = vertical drainage
 #dW2/dt = Q12-Q2-T                               [cm water equivalence day-1] ##Q2 = lateral drainage from lower water layer, T= transpiration 
 #dCa.dt=LCT1*Ac + Aa*(P/100)*Cprecip-(Ca/V)*Qout-deltaA*Ca [g C]##Ca = aquatic carbon 
 
@@ -55,6 +55,7 @@ tamStep<-function(t,S,p){
     Wa=W2*f  #[cm day-1], from lower layer
     T = min(c(TpotAreal,Wa))  #[cm day-1]
     Dwater = ifelse(TpotAreal==0,0,T/TpotAreal)  #[unitless]
+    ET=T+(P*pctInt) #cm
     
     #GPP
     GPP = GPPpotAreal*Dwater  #[g C (m ground)-2 day-1] *GPP is either equal to GPPpot or 0
@@ -96,7 +97,7 @@ tamStep<-function(t,S,p){
     #drainage of water with VIC implementation
     im = Wmax1*(1+bi) #[cm]
     i0 = im-im*(((im-(1+bi)*W1)/im)^(1/(1+bi))) #updates i0 for each time step, (Liang and Lettenmaier 1994) & help from Diogo on July 15, 2020
-    Q1 = ifelse(P > 0, ifelse((i0+P)>= im, P-Wmax1+W1 , P-Wmax1+W1+Wmax1*(1-((i0+P)/im))^(1+bi)), 0) #[cm H20 day-1] #calculate drainage 
+    Q1 = ifelse(P > 0, ifelse((i0+(P-P*pctInt))>= im, (P-P*pctInt)-Wmax1+W1 , (P-P*pctInt)-Wmax1+W1+Wmax1*(1-((i0+(P-P*pctInt))/im))^(1+bi)), 0) #[cm H20 day-1] #calculate drainage 
     Q12 = Ks*((W1-r)/(Wmax1-r))^((2/Bp)+3)  #[cm H20 day-1] #need Ks, r, Bp (param values)
     Q2 = ifelse(W2 > W20, (W2-W20)/Tstar,0) #[cm H20 day-1] W20 = reference height for W2 pool (lower pool)
     
@@ -143,9 +144,9 @@ tamStep<-function(t,S,p){
     dCs2.dt = Lf2+lout-Ds2
     dCs3.dt = Bs1+Bs2-Ds3
     dCs4.dt = Bs3-Ds4
-    dCdoc1.dt = Ls1+Ls2+(P/100)*Cprecip-Bdoc-LCT1-Rhdoc 
+    dCdoc1.dt = Ls1+Ls2+((P-P*pctInt)/100)*Cprecip-Bdoc-LCT1-Rhdoc 
     dCdoc2.dt = Bdoc+Ls3-LCT2-Rhdoc2
-    dW1.dt = P-Q1-Q12
+    dW1.dt = (P-P*pctInt)-Q1-Q12
     dW2.dt = Q12-Q2-T
     dCa.dt = LCT1*Ac + LCT2*Ac + Aa*(P/100)*Cprecip-(Ca/V)*Qout-deltaA*Ca
     dCr.dt = alCr-Lr
@@ -165,6 +166,6 @@ tamStep<-function(t,S,p){
                   Lg=Lg, Bs1=Bs1, Ds1=Ds1, Ds3=Ds3, Ds4=Ds4, Ls3=Ls3, 
                   Ls1=Ls1, Rhdoc=Rhdoc, Rhdoc2=Rhdoc2, Bs3=Bs3, 
                   Rs2=Rs2, Ls2=Ls2, Ds2=Ds2, Lf1=Lf1, Rm=Rm, 
-                  Bs2=Bs2)))
+                  Bs2=Bs2, ET=ET)))
   })
 }
