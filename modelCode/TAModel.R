@@ -16,7 +16,7 @@
 #dCa.dt=LCT1*Ac + Aa*(P/100)*Cprecip-(Ca/V)*Qout-deltaA*Ca [g C]##Ca = aquatic carbon 
 
 # define model for simulation
-tamStep<-function(t,S,p){
+tamStep<-function(t,S,p, DIC=TRUE, PFT="EG"){
   with(as.list(c(S,p)),{
     
     ### forcings
@@ -27,6 +27,7 @@ tamStep<-function(t,S,p){
     Tsoil=Tsoil_approx(t)  #[degrees C]
     #moved leaves from this spot
     Evap=Evap_approx(t) #[cm day-1]
+    Snow=Snowapprox(t) #[cm day-1]
     
     LAIareal=(Cl)/(SLW*Cfrac) #[m2 leaves (m ground)-2] #leaves originally set to 4 g C (ground m)-2 day-1
     
@@ -78,7 +79,7 @@ tamStep<-function(t,S,p){
     NPP = GPP-Ra-Rr #[g C m^-2 day-1]
     
     # leaves and leaf litter
-    if(egON=="EG"){
+    if(PFT=="EG"){
       Clmax=Lmax*SLW*Cfrac #converts Lmax (LAI units) to g C m^-2
       L=max(lt*(1-(Cl/Clmax))*NPP, 0) #[g C m^-2 day-1]
       Ll=l*Cl #[g C m^-2 day-1]
@@ -95,10 +96,19 @@ tamStep<-function(t,S,p){
       lout<-max(Ccwd*Kcwd, 0)     #[g C m^-2 day-1]
     
     #drainage of water with VIC implementation
-    im = Wmax1*(1+bi) #[cm]
-    i0 = im-im*(((im-(1+bi)*W1)/im)^(1/(1+bi))) #updates i0 for each time step, (Liang and Lettenmaier 1994) & help from Diogo on July 15, 2020
-    Q1 = ifelse(P > 0, ifelse((i0+(P-P*pctInt))>= im, (P-P*pctInt)-Wmax1+W1 , (P-P*pctInt)-Wmax1+W1+Wmax1*(1-((i0+(P-P*pctInt))/im))^(1+bi)), 0) #[cm H20 day-1] #calculate drainage 
-    Q12 = Ks*((W1-r)/(Wmax1-r))^((2/Bp)+3)  #[cm H20 day-1] #need Ks, r, Bp (param values)
+    #implementing frozen soil, may cause weird dynamics
+    #if Tsoil >0, infiltration curve used to partition snowmelt+precip
+      #into runoff vs. infiltration
+      #Frozen soil does not have Q12, but does have baseflow from W2 (Q2)
+    if(Tsoil > 0){
+      im = Wmax1*(1+bi) #[cm]
+      i0 = im-im*(((im-(1+bi)*W1)/im)^(1/(1+bi))) #updates i0 for each time step, (Liang and Lettenmaier 1994) & help from Diogo on July 15, 2020
+      Q1 = ifelse((P+Snow) > 0, ifelse((i0+((P-P*pctInt)+Snow))>= im, (P-P*pctInt+Snow)-Wmax1+W1 , (P-P*pctInt+Snow)-Wmax1+W1+Wmax1*(1-((i0+(P-P*pctInt+Snow))/im))^(1+bi)), 0) #[cm H20 day-1] #calculate drainage 
+      Q12 = Ks*((W1-r)/(Wmax1-r))^((2/Bp)+3)  #[cm H20 day-1] #need Ks, r, Bp (param values)
+    } else{
+      Q1=P+Snow
+      Q12=0
+    }
     Q2 = ifelse(W2 > W20, (W2-W20)/Tstar,0) #[cm H20 day-1] W20 = reference height for W2 pool (lower pool)
     
     #Soil DOC
@@ -151,7 +161,7 @@ tamStep<-function(t,S,p){
     dCa.dt = LCT1*Ac + LCT2*Ac + Aa*(P/100)*Cprecip-(Ca/V)*Qout-deltaA*Ca
     dCr.dt = alCr-Lr
     dCcwd.dt = Lw-lout
- 
+    
     return(list(c(dCw.dt,dCl.dt,dCs1.dt, dCs2.dt, dCs3.dt, dCs4.dt, dCdoc1.dt, dCdoc2.dt, dW1.dt, dW2.dt, dCa.dt, dCr.dt, dCcwd.dt),
                 c(GPP=GPP,Q1=Q1, Q2=Q2, Rf = Rf, 
                   Ra = Ra, NPP = NPP, LCT1 = LCT1, 
