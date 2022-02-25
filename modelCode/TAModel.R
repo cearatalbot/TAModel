@@ -66,7 +66,6 @@ tamStep<-function(t,S,p, DIC=TRUE, PFT="DE"){
     Rf = max(Rfo*Q10v^((Tair-Topt)/10), 0) #[nmol CO2 (g leaf)-1 s-1] 
     RfAreal = max(Rf*LAIareal*SLW*12*(1/1e9)*(60*60*24), 0)  #[g C (m ground)-2 day-1] 
     Rm = max(Ka*Cw*Q10v^(Tair/10)/365, 0) #[g C m^-2 day-1]; 365=days in year
-    #Rh = Cs*Kh*Q10s^(Tsoil/10)/365*(W/Wc) #[g C m^-2 day-1]; 365=days in year #****W/Wc could be made more complex to account for O2 limitation of soil respiration..
     Ra=RfAreal+Rm  #[g C m^-2 day-1]
     
     #wood litter
@@ -148,11 +147,7 @@ tamStep<-function(t,S,p, DIC=TRUE, PFT="DE"){
       precipC=(((P-P*pctInt)+Snow)/100)*Cprecip ##g C m^-2 * (cm * 0.01 = m) = g C m3 .. /1000 m3 to L... * 1000 g to mg == mg C/L
       #so LCT1 is too high and taking too much C  
       LCT1 = ifelse(Cdoc1 > 0, (Cdoc1/((W1+Q1)*0.01))*(Q1*0.01), 0) # g C m^-3 * m^-3 = [g C day^-1], lateral DOC from top layer
-           # if(LCT1 >= Cdoc1){
-           #   LCT1=Cdoc1+Ls1+Ls2+precipC-Rhdoc-Bdoc 
-          #  }
       LCT2 = ifelse(Cdoc2 > 0, (Cdoc2/((W2+Q2)*0.01))*(Q2*0.01), 0) # g C m^-3 * m^-3 = [g C day^-1] lateral DOC from bottom layer
-
     } else{
       LCT1=0
       LCT2=0
@@ -180,12 +175,12 @@ tamStep<-function(t,S,p, DIC=TRUE, PFT="DE"){
           B2=-0.027455
           B3=0.0053407
           S=0  # ppt
-          P=1  # atm
+          Press=1  # atm
           # atmCO2 in ppm
           # air T in deg C
           K=Tair+273.15
           lnF=A1+A2*(100/K)+A3*log(K/100)+A4*(K/100)^2+S*(B1+B2*(K/100)+B3*(K/100)^2)
-          Cstar=exp(lnF)*P*(atmCO2*1e-6)  # mol l-1
+          Cstar=(exp(lnF)*Press*(atmCO2*1e-3))*12 #1e-6 converts mmol/m^-3 to mol l-1
         #Information and equations from Wania et al. 2010; T deg C
         SCO2 = 1911-113.7*Tair+2.967*Tair^2-0.02943*Tair^3 #to estimate Schmidt number for CO2
         kCO2 = 2.07+0.215*(SCO2/600)^(-1/2) #m/day
@@ -195,19 +190,17 @@ tamStep<-function(t,S,p, DIC=TRUE, PFT="DE"){
         #need to change?? vol--no longer 1 m^3
         #double check units
         if(Tsoil > 0){
-          Iout1 = max((-kCO2*(Cstar-((Cdic1/12)/(W1*0.01*1000)))*12), 0) #g C m^-2 DIC emission flux, concentrations in mols/L and then flux converted to g C
-          Iout2 = max((-kCO2*(Cstar-((Cdic2/12)/(W2*0.01*1000)))*12), 0) #g C m^-2 DIC emission flux,concentrations in mols/L and then flux converted to g C
           LDIC1 = max((Cdic1/((W1+Q1)*0.01))*(Q1*0.01), 0) # g C m^-3 * m^-3 = [g C day^-1], lateral DIC from top layer
-            #if(LDIC1 >= Cdic1){
-          #    LDIC1=Cdic1+I1-Iout1-Bdic
-          #  }
-          LDIC2 = max((Cdic2/((W2+Q2)*0.01))*(Q2*0.01), 0) # g C m^-3 * m^-3 = [g C day^-1] lateral DIC from bottom layer
+          LDIC2 = max((Cdic2/((W2+Q2)*0.01))*(Q2*0.01), 0) # g C m^-3 * m^-3 = [g C day^-1] lateral DIC from bottom layer          
           } else{
-          Iout2=0
-          Iout1=0
+          #Iout2=0
+          #Iout1=0
           LDIC1=0
           LDIC2=0
-        }
+          }
+        Iout1 = min(-kCO2*(Cstar-(Cdic1/((W1+Q1)*0.01))), Cdic1-Bdic-LDIC1) #g C m^-2 DIC emission flux, concentrations in mols/L and then flux converted to g C
+        Iout2 = min(-kCO2*(Cstar-(Cdic2/((W2+Q2)*0.01))), Cdic2+Bdic-LDIC2)  #g C m^-2 DIC emission flux,concentrations in mols/L and then flux converted to g C
+        
        }
     ####Aquatic####
     V = Aa * zbar #aquatic volume [m^3]
@@ -248,7 +241,7 @@ tamStep<-function(t,S,p, DIC=TRUE, PFT="DE"){
                     Ls1=Ls1, Rhdoc=Rhdoc, Rhdoc2=Rhdoc2, Bs3=Bs3, 
                     Rs2=Rs2, Ls2=Ls2, Ds2=Ds2, Lf1=Lf1, Rm=Rm, 
                     Bs2=Bs2, ET=ET, LDIC1=LDIC1, LDIC2=LDIC2, Iout1=Iout1,
-                    Iout2=Iout2, I1=I1, I2=I2)))
+                    Iout2=Iout2, I1=I1, I2=I2, Bdic=Bdic)))
   } else{
       return(list(c(dCw.dt,dCl.dt,dCs1.dt, dCs2.dt, dCs3.dt, dCs4.dt, dCdoc1.dt, dCdoc2.dt, dW1.dt, dW2.dt, dCa.dt, dCr.dt, dCcwd.dt),
                   c(GPP=GPP,Q1=Q1, Q2=Q2, Rf = Rf, 
