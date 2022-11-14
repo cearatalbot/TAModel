@@ -29,6 +29,16 @@ tamStep<-function(t,S,p, DIC=TRUE, PFT="DE"){
     #moved leaves from this spot
     Evap=Evap_approx(t) #[cm day-1]
     Snow=Snowapprox(t) #[cm day-1]
+    atmCO2=CO2_approx(t)
+    
+    
+    # leaves and leaf litter
+    L=Lapprox(t)  #[g C m^-2 day-1]
+    Ll=Ll_approx(t)  #[g C m^-2 day-1]
+    #Clmax=Lmax*SLW*Cfrac #converts Lmax (LAI units) to g C m^-2
+    #L=max(lt*(1-(Cl/Clmax))*NPP, 0) #[g C m^-2 day-1]
+    Lcost=L#+Cl*lt #[g C m^-2 day-1]; leaf cost comes out of NPP
+    Llt=Ll#+Cl*lt #[g C m^-2 day-1]; total leaf turnover
     
     LAIareal=(Cl)/(SLW*Cfrac) #[m2 leaves (m ground)-2] #leaves originally set to 4 g C (ground m)-2 day-1
     
@@ -50,14 +60,16 @@ tamStep<-function(t,S,p, DIC=TRUE, PFT="DE"){
     GPPpot = GPPmax*Dtemp*Dvpd*Dlightbar*(60*60*24)*12*(1/1e9)#[g C leaf day-1] ####changed to per day
     GPPpotAreal = GPPpot*LAIareal*SLW   #[g C (m ground)-2 day-1]
     
+    ev<-ifelse(LAIareal > 0, pctInt, 0) 
     #water limitation of GPP
-    WUE = max(Kwue/VPD,0) #[mg CO2 (g H2O)-1]
+    WUE = max(Kwue/VPD,0) #[mg CO2 (g H2O)-1] #Kwue units: mg CO2 KPa (g H2O)-1
     #Tpot = GPPpot/WUE*44*1e-6 #[g H2O (g leaf)-1 s-1]; 44=MW CO2, 1e-6=nmol to mmol
-    TpotAreal=GPPpotAreal/WUE*1000*(44/12)*1e-4 #[cm H2O m-2 day-1]; (60*60*24)= seconds in a day, 1=g H2O to cm^3 H2O, 1e-4 m-2 to cm-2
+    
+    TpotAreal=ifelse(WUE > 0, GPPpotAreal/WUE*1000*(44/12)*1e-4, 0) #[cm H2O m-2 day-1]; (60*60*24)= seconds in a day, 1=g H2O to cm^3 H2O, 1e-4 m-2 to cm-2
     Wa=max(W2*f, 0)  #[cm day-1], from lower layer
     T = min(c(TpotAreal,Wa))  #[cm day-1]
     Dwater = ifelse(TpotAreal==0,0,T/TpotAreal)  #[unitless]
-    ET=T+(P*pctInt) #cm
+    ET=T+(P*ev) #cm
     
     #GPP
     GPP = GPPpotAreal*Dwater  #[g C (m ground)-2 day-1] *GPP is either equal to GPPpot or 0
@@ -69,31 +81,39 @@ tamStep<-function(t,S,p, DIC=TRUE, PFT="DE"){
     Ra=RfAreal+Rm  #[g C m^-2 day-1]
     
     #wood litter
-    Lw= max(Cw*Kw/365, 0)  #[g C m^-2 day-1]; 365=days in year
+    Lw= max(Cw*(Kw/365), 0)  #[g C m^-2 day-1]; 365=days in year
     #root litter
-    Lr=max(Cr*Kr/365, 0) #[g C m^-2 day-1]; 365=days in year
+    Lr=max(Cr*(Kr/365), 0) #[g C m^-2 day-1]; 365=days in year
     #root resp
-    Rr=max(Ka*Cr*Q10v^(Tair/10)/365, 0) #[g C m^-2 day-1]; 365=days in year
+    Rr=max((Ka/365*Cr*Q10v^(Tair/10)), 0) #[g C m^-2 day-1]; 365=days in year
     
     #NPP
-    NPP = GPP-Ra-Rr #[g C m^-2 day-1]
-    
-    # leaves and leaf litter
-    if(PFT=="EG"){
-      Clmax=Lmax*SLW*Cfrac #converts Lmax (LAI units) to g C m^-2
-      L=max(lt*(1-(Cl/Clmax))*NPP, 0) #[g C m^-2 day-1]
-      Ll=l*Cl #[g C m^-2 day-1]
-    } else {
-      L=Lapprox(t)  #[g C m^-2 day-1]
-      Ll=Ll_approx(t)  #[g C m^-2 day-1]
+    NPP = GPP-Ra-Rr #[g C m^-2 day-1]]
+    NPPalL = GPP-Lcost-RfAreal #[g C m^-2 day-1]
+    if(NPPalL > 0){
+      Lg<-max((NPPalL)*ag, 0)  #[g C m^-2 day-1] proportion of NPP to reproduction
+      #excess GPP allocation
+        alCr<-(NPPalL-Lg)*(1-aw)  #[g C m^-2 day-1]
+        alCw<-(NPPalL-Lg)*aw   #[g C m^-2 day-1]
+    } else{
+      Lg=0
+      if(S0[[1]] != 0){ #if there is wood.. 
+        if(Cr > 0 & Cw > 0){
+        alCr=(Cr/(Cw+Cr))*(NPPalL-Lg)
+        alCw=(Cw/(Cw+Cr))*(NPPalL-Lg)
+        } else if(Cr <= 0){
+          alCw=NPPalL-Lg
+          alCr=0
+        } else if(Cw <= 0){
+          alCr=NPPalL-Lg
+          alCw=0
+        }
+      } else{
+        alCr=NPPalL-Lg
+        alCw=0
+      }
     }
-    
-    Lg<-max((NPP-L)*ag, 0)  #[g C m^-2 day-1] proportion of NPP to reproduction
-    
-    #excess GPP allocation
-      alCw<-(NPP-L-Lg)*aw     #[g C m^-2 day-1]
-      alCr<-(NPP-L-Lg)*(1-aw)  #[g C m^-2 day-1]
-      lout<-max(Ccwd*Kcwd, 0)     #[g C m^-2 day-1]
+    lout<-max(Ccwd*Kcwd, 0)     #[g C m^-2 day-1]
     
     #drainage of water with VIC implementation
     #implementing frozen soil, may cause weird dynamics
@@ -103,23 +123,23 @@ tamStep<-function(t,S,p, DIC=TRUE, PFT="DE"){
     if(Tsoil > 0){
       im = Wmax1*(1+bi) #[cm]
       i0 = im-im*(((im-(1+bi)*W1)/im)^(1/(1+bi))) #updates i0 for each time step, (Liang and Lettenmaier 1994) & help from Diogo on July 15, 2020
-      Q12 = Ks*((W1-r)/(Wmax1-r))^((2/Bp)+3)  #[cm H20 day-1] #need Ks, r, Bp (param values)
-      Pin = (P-P*pctInt+Snow)
-      Q1 = ifelse(((P-P*pctInt)+Snow) > 0, ifelse((i0+((P-P*pctInt)+Snow))>= im, (P-P*pctInt+Snow)-Wmax1+W1 , (P-P*pctInt+Snow)-Wmax1+W1+Wmax1*(1-((i0+(P-P*pctInt+Snow))/im))^(1+bi)), 0) #[cm H20 day-1] #calculate drainage 
-        if(W1 < Wmax1){
+      Q12 = min(Ks*((W1-r)/(Wmax1-r))^((2/Bp)+3), W1) #[cm H20 day-1] #need Ks, r, Bp (param values)
+      Pin = (P-P*ev+Snow)
+      Q1 = ifelse(((P-P*ev)+Snow) > 0, ifelse((i0+((P-P*ev)+Snow))>= im, (P-P*ev+Snow)-Wmax1+W1 , (P-P*ev+Snow)-Wmax1+W1+Wmax1*(1-((i0+(P-P*ev+Snow))/im))^(1+bi)), 0) #[cm H20 day-1] #calculate drainage 
+        if((W1+Pin) < Wmax1){
             export = Q1+Q12
         }else{
-           export = Pin
+           export = Pin+Q12
          }
     } else{
       im = Wmax1*(1+bi) #[cm]
       i0 = im-im*(((im-(1+bi)*W1)/im)^(1/(1+bi))) #updates i0 for each time step, (Liang and Lettenmaier 1994) & help from Diogo on July 15, 2020
-      Q1=ifelse((P-P*pctInt)+Snow > 0, (P-P*pctInt)+Snow, 0)
+      Q1=ifelse((P-P*ev)+Snow > 0, (P-P*ev)+Snow, 0)
       Q12=0
       Pin=0
       export=0
     }
-    Q2 = ifelse(W2 > W20, (W2-W20)/Tstar, 0) #[cm H20 day-1] W20 = reference height for W2 pool (lower pool)
+    Q2 = ifelse((W2-T) > W20, (W2-W20)/Tstar, 0) #[cm H20 day-1] W20 = reference height for W2 pool (lower pool)
     #Soil DOC
     #organic horizon
     Ds1=max((Cs1*deltaS1), 0)#[g C m^-2 day-1] deltaS1 = decomp rate; Ds1=decomp; rhoS1=resp frac of Ds1 
@@ -127,13 +147,12 @@ tamStep<-function(t,S,p, DIC=TRUE, PFT="DE"){
     Rs1 = min(((Ds1*(1-lambdaS1))*rhoS1*Q10s^(Tsoil/10)*(W1/Wmax1)),(Ds1*(1-lambdaS1))) #[g C m^-2 day-1] , respiration in organic horizon
     Bs1 = max((Ds1-Rs1-Ls1), 0) #[g C m^-2 day-1] burial of particulate C
     Bdoc = max((Cdoc1/(W1*0.01)*(Q12*0.01)),0) #[g C m^-2 day-1] burial of DOC from organic horizon
-    Rhdoc = max((Cdoc1*Kh*Q10s^(Tsoil/10)), 0) #[g C m^-2 day^-1]
-    Rhdoc2 = max((Cdoc2*Kh*Q10s^(Tsoil/10)), 0) #[g C m^-2 day-1]
+    Rhdoc = max((Cdoc1*Kdoc*Q10s^(Tsoil/10)), 0) #[g C m^-2 day^-1]
+    Rhdoc2 = max((Cdoc2*Kdoc*Q10s^(Tsoil/10)), 0) #[g C m^-2 day-1]
     Ds2=max((Cs2*deltaS2), 0) #[g C m^-2 day-1] decomp from non sol
     Ls2 = max((Ds2*lambdaS2), 0) #[g C m^-2 day-1] leaching from fast non.sol.
     Rs2=min(((Ds2*(1-lambdaS2))*rhoS2*Q10s^(Tsoil/10)*(W1/Wmax1)), (Ds2*(1-lambdaS2))) #[g C m^-2 day-1] respiration from non sol.
     Bs2=max(Ds2-Rs2-Ls2, 0) #[g C m^-2 day-1] burial from non.sol.
-  
     
     #slow soil C
     Ds3=max((Cs3*deltaS3), 0) #[g C m^-2 day-1] deltaS3=decomp rate; Ds3=decomp; Km=resp frac of Ds3
@@ -143,20 +162,19 @@ tamStep<-function(t,S,p, DIC=TRUE, PFT="DE"){
     Bs3 = max((Ds3-Ls3-Rs3), 0) #[g C m^-2 day-1] burial from slow to passive
     Ds4=max(Cs4*deltaS4, 0) # [g C m^-2 day-1] decomposition in passive soil C pool
     #LCT1 is drainage DOC and is expressed as load 
+    LCT2 = ifelse(Cdoc2 > 0, (Cdoc2/((W2+Q2)*0.01))*(Q2*0.01), 0) # g C m^-3 * m^-3 = [g C day^-1] lateral DOC from bottom layer
+    
     if(Tsoil > 0){
-      precipC=(((P-P*pctInt)+Snow)/100)*Cprecip ##g C m^-2 * (cm * 0.01 = m) = g C m3 .. /1000 m3 to L... * 1000 g to mg == mg C/L
-      #so LCT1 is too high and taking too much C  
+      precipC=(((P-P*ev)+Snow)/100)*Cprecip ##g C m^-2 * (cm * 0.01 = m) = g C m3 .. /1000 m3 to L... * 1000 g to mg == mg C/L
       LCT1 = ifelse(Cdoc1 > 0, (Cdoc1/((W1+Q1)*0.01))*(Q1*0.01), 0) # g C m^-3 * m^-3 = [g C day^-1], lateral DOC from top layer
-      LCT2 = ifelse(Cdoc2 > 0, (Cdoc2/((W2+Q2)*0.01))*(Q2*0.01), 0) # g C m^-3 * m^-3 = [g C day^-1] lateral DOC from bottom layer
-    } else{
+       } else{
       LCT1=0
-      LCT2=0
       precipC=0
     }
     
     #separate litter flux into soluble vs. non-soluble
-    Lf1=(Lg+Lr+Ll)*fS1 #[g C m^-2 day-1]
-    Lf2=(Lg+Lr+Ll)*(1-fS1) #[g C m^-2 day-1]
+    Lf1=(Lg+Lr+Llt)*fS1 #[g C m^-2 day-1]
+    Lf2=(Lg+Lr+Llt)*(1-fS1) #[g C m^-2 day-1]
    
     #Soil DIC
     #DIC
@@ -189,14 +207,15 @@ tamStep<-function(t,S,p, DIC=TRUE, PFT="DE"){
         Bdic = max(((Cdic1/(W1*0.01))*(Q12*0.01)),0) #[g C m^-2 day-1] burial of DOC from organic horizon
         #need to change?? vol--no longer 1 m^3
         #double check units
+        LDIC2 = max((Cdic2/((W2+Q2)*0.01))*(Q2*0.01), 0) # g C m^-3 * m^-3 = [g C day^-1] lateral DIC from bottom layer          
+        
         if(Tsoil > 0){
           LDIC1 = max((Cdic1/((W1+Q1)*0.01))*(Q1*0.01), 0) # g C m^-3 * m^-3 = [g C day^-1], lateral DIC from top layer
-          LDIC2 = max((Cdic2/((W2+Q2)*0.01))*(Q2*0.01), 0) # g C m^-3 * m^-3 = [g C day^-1] lateral DIC from bottom layer          
-          } else{
+            } else{
           #Iout2=0
           #Iout1=0
           LDIC1=0
-          LDIC2=0
+          #LDIC2=0
           }
         Iout1 = min(-kCO2*(Cstar-(Cdic1/((W1+Q1)*0.01))), Cdic1-Bdic-LDIC1) #g C m^-2 DIC emission flux, concentrations in mols/L and then flux converted to g C
         Iout2 = min(-kCO2*(Cstar-(Cdic2/((W2+Q2)*0.01))), Cdic2+Bdic-LDIC2)  #g C m^-2 DIC emission flux,concentrations in mols/L and then flux converted to g C
@@ -207,11 +226,12 @@ tamStep<-function(t,S,p, DIC=TRUE, PFT="DE"){
     Qin = (Q1+Q2)/100 * Ac #inflow [m^3]
     Qout=ifelse(Qin+ Aa*((P+Snow)/100)-(Evap/100)*Aa < 0, 0 ,Qin+ Aa*((P+Snow)/100)-(Evap/100)*Aa)  # [m^3] 
     
+    ero=er*Cs2
     ### differential equations
-    dCw.dt=alCw-Lw
-    dCl.dt=L-Ll
+    dCw.dt=alCw-Rm-Lw
+    dCl.dt=Lcost-Llt
     dCs1.dt = Lf1-Ds1
-    dCs2.dt = Lf2+lout-Ds2
+    dCs2.dt = Lf2+lout-Ds2-ero
     dCs3.dt = Bs1+Bs2-Ds3
     dCs4.dt = Bs3-Ds4
     dCdoc1.dt = Ls1+Ls2+precipC-Rhdoc-Bdoc-LCT1
@@ -219,7 +239,7 @@ tamStep<-function(t,S,p, DIC=TRUE, PFT="DE"){
     dW1.dt = Pin-export
     dW2.dt = Q12-Q2-T
     dCa.dt = LCT1*Ac + LCT2*Ac + Aa*((P+Snow)/100)*Cprecip-(Ca/V)*Qout-deltaA*Ca
-    dCr.dt = alCr-Lr
+    dCr.dt = alCr-Rr-Lr
     dCcwd.dt = Lw-lout
     
   if(DIC==TRUE){
@@ -241,7 +261,7 @@ tamStep<-function(t,S,p, DIC=TRUE, PFT="DE"){
                     Ls1=Ls1, Rhdoc=Rhdoc, Rhdoc2=Rhdoc2, Bs3=Bs3, 
                     Rs2=Rs2, Ls2=Ls2, Ds2=Ds2, Lf1=Lf1, Rm=Rm, 
                     Bs2=Bs2, ET=ET, LDIC1=LDIC1, LDIC2=LDIC2, Iout1=Iout1,
-                    Iout2=Iout2, I1=I1, I2=I2, Bdic=Bdic)))
+                    Iout2=Iout2, I1=I1, I2=I2, Bdic=Bdic, ero=ero)))
   } else{
       return(list(c(dCw.dt,dCl.dt,dCs1.dt, dCs2.dt, dCs3.dt, dCs4.dt, dCdoc1.dt, dCdoc2.dt, dW1.dt, dW2.dt, dCa.dt, dCr.dt, dCcwd.dt),
                   c(GPP=GPP,Q1=Q1, Q2=Q2, Rf = Rf, 
@@ -257,7 +277,8 @@ tamStep<-function(t,S,p, DIC=TRUE, PFT="DE"){
                     Lg=Lg, Bs1=Bs1, Ds1=Ds1, Ds3=Ds3, Ds4=Ds4, Ls3=Ls3, 
                     Ls1=Ls1, Rhdoc=Rhdoc, Rhdoc2=Rhdoc2, Bs3=Bs3, 
                     Rs2=Rs2, Ls2=Ls2, Ds2=Ds2, Lf1=Lf1, Rm=Rm, 
-                    Bs2=Bs2, ET=ET)))
+                    Bs2=Bs2, ET=ET, ero=ero)))
       }
       }) 
 }
+
